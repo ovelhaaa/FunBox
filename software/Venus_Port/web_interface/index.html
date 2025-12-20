@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Venus Effect Controller</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #222;
+            color: #eee;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        h1 { margin-bottom: 20px; color: #ff99cc; }
+        .controls-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            width: 100%;
+            max-width: 800px;
+        }
+        .control-group {
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .control-group h3 { margin-top: 0; border-bottom: 1px solid #555; padding-bottom: 5px; }
+        .parameter {
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+        }
+        label { margin-bottom: 5px; font-weight: bold; font-size: 0.9em; }
+        input[type=range] {
+            width: 100%;
+            cursor: pointer;
+        }
+        select {
+            padding: 8px;
+            border-radius: 4px;
+            border: none;
+            background: #444;
+            color: white;
+            width: 100%;
+        }
+        .toggle-btn {
+            padding: 10px;
+            background: #444;
+            border: 2px solid #555;
+            color: #fff;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            font-weight: bold;
+        }
+        .toggle-btn.active {
+            background: #ff99cc;
+            color: #222;
+            border-color: #ff99cc;
+        }
+        #midi-status {
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #444;
+            border-radius: 4px;
+            width: 100%;
+            max-width: 800px;
+            text-align: center;
+        }
+        .status-connected { color: #8f8; }
+        .status-disconnected { color: #f88; }
+    </style>
+</head>
+<body>
+
+    <h1>Venus Effect Controller</h1>
+
+    <div id="midi-status">
+        MIDI Status: <span id="status-text" class="status-disconnected">Not Connected</span>
+        <br>
+        <select id="midi-out-select" style="margin-top: 10px; width: auto;">
+            <option value="">Select MIDI Output</option>
+        </select>
+    </div>
+
+    <div class="controls-container">
+
+        <!-- Knobs -->
+        <div class="control-group">
+            <h3>Parameters</h3>
+            <div class="parameter">
+                <label>Decay <span id="val-decay">0</span></label>
+                <input type="range" min="0" max="127" value="64" oninput="sendCC(14, this.value); updateLabel('val-decay', this.value)">
+            </div>
+            <div class="parameter">
+                <label>Mix <span id="val-mix">0</span></label>
+                <input type="range" min="0" max="127" value="64" oninput="sendCC(15, this.value); updateLabel('val-mix', this.value)">
+            </div>
+            <div class="parameter">
+                <label>Damp <span id="val-damp">0</span></label>
+                <input type="range" min="0" max="127" value="64" oninput="sendCC(16, this.value); updateLabel('val-damp', this.value)">
+            </div>
+            <div class="parameter">
+                <label>Shimmer <span id="val-shimmer">0</span></label>
+                <input type="range" min="0" max="127" value="0" oninput="sendCC(17, this.value); updateLabel('val-shimmer', this.value)">
+            </div>
+            <div class="parameter">
+                <label>Shimmer Tone <span id="val-shimmertone">0</span></label>
+                <input type="range" min="0" max="127" value="0" oninput="sendCC(18, this.value); updateLabel('val-shimmertone', this.value)">
+            </div>
+            <div class="parameter">
+                <label>Detune <span id="val-detune">64</span></label>
+                <input type="range" min="0" max="127" value="64" oninput="sendCC(19, this.value); updateLabel('val-detune', this.value)">
+            </div>
+        </div>
+
+        <!-- Switches -->
+        <div class="control-group">
+            <h3>Modes</h3>
+            <div class="parameter">
+                <label>Shimmer Mode</label>
+                <select onchange="sendCC(20, this.value)">
+                    <option value="20">Down (Octave Down)</option>
+                    <option value="64" selected>Up (Octave Up)</option>
+                    <option value="100">Both (Up & Down)</option>
+                </select>
+            </div>
+            <div class="parameter">
+                <label>Reverb Mode</label>
+                <select onchange="sendCC(21, this.value)">
+                    <option value="20">Less Lo-Fi</option>
+                    <option value="64" selected>Normal</option>
+                    <option value="100">More Lo-Fi</option>
+                </select>
+            </div>
+            <div class="parameter">
+                <label>Drift Mode</label>
+                <select onchange="sendCC(22, this.value)">
+                    <option value="20">Slow Drift</option>
+                    <option value="64" selected>None</option>
+                    <option value="100">Fast Drift</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Toggles -->
+        <div class="control-group">
+            <h3>Actions</h3>
+            <div class="parameter">
+                <button id="btn-freeze" class="toggle-btn" onclick="toggleFreeze()">Freeze: OFF</button>
+            </div>
+            <div class="parameter">
+                <button id="btn-bypass" class="toggle-btn" onclick="toggleBypass()">Bypass: OFF</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let midiOutput = null;
+        let freezeState = false;
+        let bypassState = false;
+
+        function updateLabel(id, val) {
+            document.getElementById(id).innerText = val;
+        }
+
+        function toggleFreeze() {
+            freezeState = !freezeState;
+            const btn = document.getElementById('btn-freeze');
+            btn.innerText = "Freeze: " + (freezeState ? "ON" : "OFF");
+            if (freezeState) btn.classList.add('active'); else btn.classList.remove('active');
+            sendCC(23, freezeState ? 127 : 0);
+        }
+
+        function toggleBypass() {
+            bypassState = !bypassState;
+            const btn = document.getElementById('btn-bypass');
+            btn.innerText = "Bypass: " + (bypassState ? "ON" : "OFF");
+            if (bypassState) btn.classList.add('active'); else btn.classList.remove('active');
+            sendCC(24, bypassState ? 127 : 0);
+        }
+
+        // MIDI Handling
+        if (navigator.requestMIDIAccess) {
+            navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
+        } else {
+            document.getElementById('status-text').innerText = "WebMIDI not supported in this browser.";
+        }
+
+        function onMIDISuccess(midiAccess) {
+            const outputs = midiAccess.outputs;
+            const select = document.getElementById('midi-out-select');
+
+            // Clear existing options
+            select.innerHTML = '<option value="">Select MIDI Output</option>';
+
+            outputs.forEach((output) => {
+                const option = document.createElement('option');
+                option.value = output.id;
+                option.innerText = output.name;
+                select.appendChild(option);
+            });
+
+            select.onchange = function() {
+                const id = this.value;
+                if (id) {
+                    midiOutput = midiAccess.outputs.get(id);
+                    document.getElementById('status-text').innerText = "Connected to " + midiOutput.name;
+                    document.getElementById('status-text').className = "status-connected";
+                } else {
+                    midiOutput = null;
+                    document.getElementById('status-text').innerText = "Not Connected";
+                    document.getElementById('status-text').className = "status-disconnected";
+                }
+            };
+        }
+
+        function onMIDIFailure() {
+            document.getElementById('status-text').innerText = "Failed to access MIDI devices.";
+        }
+
+        function sendCC(cc, value) {
+            if (midiOutput) {
+                // Channel 1 (0xB0)
+                midiOutput.send([0xB0, cc, value]);
+            }
+        }
+    </script>
+</body>
+</html>
