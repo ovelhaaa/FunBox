@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Uranus Control Interface</title>
+    <style>
+        body { font-family: monospace; background: #222; color: #eee; padding: 20px; }
+        .control-group { border: 1px solid #444; padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .slider-container { margin: 10px 0; display: flex; align-items: center; }
+        label { width: 150px; display: inline-block; }
+        input[type=range] { flex-grow: 1; margin: 0 10px; }
+        .val { width: 50px; text-align: right; }
+        button { padding: 10px 20px; background: #444; color: #fff; border: none; cursor: pointer; margin: 5px; }
+        button:hover { background: #666; }
+        #status { color: #88ff88; margin-bottom: 20px; font-weight: bold; }
+        .tabs { display: flex; margin-bottom: 10px; }
+        .tab { padding: 5px 10px; cursor: pointer; border: 1px solid #555; margin-right: 5px; }
+        .tab.active { background: #555; }
+    </style>
+</head>
+<body>
+    <h1>Uranus Control</h1>
+    <div id="status">Disconnected</div>
+
+    <div style="margin-bottom: 20px;">
+        <button id="connectBtn" onclick="connectSerial()">Connect via Serial (Chrome/Edge)</button>
+        <button id="connectMidiBtn" onclick="connectMidi()">Connect via WebMIDI (Bridge)</button>
+    </div>
+
+    <div class="control-group">
+        <h2>Knobs</h2>
+        <div class="slider-container"><label>Grain Size (CC 14)</label><input type="range" min="0" max="127" value="0" oninput="sendCC(14, this.value)"><span class="val" id="val14">0</span></div>
+        <div class="slider-container"><label>Mix (CC 15)</label><input type="range" min="0" max="127" value="64" oninput="sendCC(15, this.value)"><span class="val" id="val15">64</span></div>
+        <div class="slider-container"><label>Pitch (CC 16)</label><input type="range" min="0" max="127" value="64" oninput="sendCC(16, this.value)"><span class="val" id="val16">64</span></div>
+        <div class="slider-container"><label>Feedback (CC 17)</label><input type="range" min="0" max="127" value="0" oninput="sendCC(17, this.value)"><span class="val" id="val17">0</span></div>
+        <div class="slider-container"><label>Width (CC 18)</label><input type="range" min="0" max="127" value="0" oninput="sendCC(18, this.value)"><span class="val" id="val18">0</span></div>
+        <div class="slider-container"><label>Speed (CC 19)</label><input type="range" min="0" max="127" value="64" oninput="sendCC(19, this.value)"><span class="val" id="val19">64</span></div>
+    </div>
+
+    <div class="control-group">
+        <h2>FM Synth</h2>
+        <div class="slider-container"><label>Carrier Level (CC 20)</label><input type="range" min="0" max="127" value="64" oninput="sendCC(20, this.value)"></div>
+        <div class="slider-container"><label>Carrier Ratio (CC 21)</label><input type="range" min="0" max="127" value="0" oninput="sendCC(21, this.value)"></div>
+        <div class="slider-container"><label>Mod Level (CC 22)</label><input type="range" min="0" max="127" value="0" oninput="sendCC(22, this.value)"></div>
+        <div class="slider-container"><label>Mod Ratio (CC 23)</label><input type="range" min="0" max="127" value="0" oninput="sendCC(23, this.value)"></div>
+    </div>
+
+    <div class="control-group">
+        <h2>Envelope (FM/Granular)</h2>
+        <div class="slider-container"><label>Attack (CC 28)</label><input type="range" min="0" max="127" value="10" oninput="sendCC(28, this.value)"></div>
+        <div class="slider-container"><label>Decay (CC 29)</label><input type="range" min="0" max="127" value="20" oninput="sendCC(29, this.value)"></div>
+        <div class="slider-container"><label>Sustain (CC 30)</label><input type="range" min="0" max="127" value="100" oninput="sendCC(30, this.value)"></div>
+        <div class="slider-container"><label>Release (CC 31)</label><input type="range" min="0" max="127" value="40" oninput="sendCC(31, this.value)"></div>
+    </div>
+
+    <div class="control-group">
+        <h2>Virtual Keyboard</h2>
+        <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+            <button onmousedown="sendNoteOn(60)" onmouseup="sendNoteOff(60)">C4</button>
+            <button onmousedown="sendNoteOn(62)" onmouseup="sendNoteOff(62)">D4</button>
+            <button onmousedown="sendNoteOn(64)" onmouseup="sendNoteOff(64)">E4</button>
+            <button onmousedown="sendNoteOn(65)" onmouseup="sendNoteOff(65)">F4</button>
+            <button onmousedown="sendNoteOn(67)" onmouseup="sendNoteOff(67)">G4</button>
+            <button onmousedown="sendNoteOn(69)" onmouseup="sendNoteOff(69)">A4</button>
+            <button onmousedown="sendNoteOn(71)" onmouseup="sendNoteOff(71)">B4</button>
+            <button onmousedown="sendNoteOn(72)" onmouseup="sendNoteOff(72)">C5</button>
+        </div>
+    </div>
+
+    <script>
+        let port;
+        let writer;
+        let midiOutput = null;
+
+        // Web Serial Connection
+        async function connectSerial() {
+            try {
+                port = await navigator.serial.requestPort();
+                await port.open({ baudRate: 115200 });
+                writer = port.writable.getWriter();
+                document.getElementById('status').innerText = "Connected via Serial";
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('connectMidiBtn').disabled = true;
+            } catch (e) {
+                console.error(e);
+                alert("Serial Connection Failed: " + e);
+            }
+        }
+
+        // Standard WebMIDI Connection
+        async function connectMidi() {
+            try {
+                const midiAccess = await navigator.requestMIDIAccess();
+                const outputs = Array.from(midiAccess.outputs.values());
+                if(outputs.length > 0) {
+                     // Just pick the first one or let user choose (simplified)
+                     // Ideally show a list, but this is a quick tool.
+                     midiOutput = outputs[0];
+                     // Try to find one with "Midi" or "Loop" name if possible
+                     for(let o of outputs) {
+                        if(o.name.includes("Loop") || o.name.includes("Through")) midiOutput = o;
+                     }
+
+                     document.getElementById('status').innerText = "Connected via WebMIDI: " + midiOutput.name;
+                     document.getElementById('connectBtn').disabled = true;
+                     document.getElementById('connectMidiBtn').disabled = true;
+                } else {
+                    alert("No MIDI outputs found.");
+                }
+            } catch (e) {
+                console.error(e);
+                alert("MIDI Access Failed: " + e);
+            }
+        }
+
+        async function sendBytes(bytes) {
+            // Serial
+            if (writer) {
+                const data = new Uint8Array(bytes);
+                await writer.write(data);
+            }
+            // MIDI
+            if (midiOutput) {
+                midiOutput.send(bytes);
+            }
+        }
+
+        function sendCC(cc, val) {
+            document.getElementById('val'+cc).innerText = val;
+            sendBytes([0xB0, parseInt(cc), parseInt(val)]);
+        }
+
+        function sendNoteOn(note) {
+            sendBytes([0x90, note, 100]);
+        }
+
+        function sendNoteOff(note) {
+            sendBytes([0x80, note, 0]);
+        }
+    </script>
+</body>
+</html>
